@@ -13,7 +13,8 @@ contract SimpleStorage {
     }
     People[] public people; 
 
-    function store(uint256 _favoriteNum) public {
+    function store(uint256 _favoriteNum) public virtual {
+        // virtual keyword means that function is overridable 
         favoriteNum = _favoriteNum;
     }
 
