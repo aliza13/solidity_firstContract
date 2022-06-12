@@ -2,32 +2,74 @@
 pragma solidity ^0.8.8;
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "./PriceConverter.sol";
 
+error NotOwner();
 contract FundMe {
+    using PriceConverter for uint256;
 
-    uint256 public minimumUsd = 50 * 1e18;
+    mapping(address => uint256) public addressToAmountFunded;
+    address[] public funders;
 
-    function fund() public payable{
-        // 1e18 = 1*10 ** 18 == 1000000000000000000
-        // require(msg.value >= 1e18, "Did not deploy enough."); 
-        require(msg.value >= minimumUsd, "Did not deploy enough."); 
+    // Could we make this constant?  /* hint: no! We should make it immutable! */
+    address public /* immutable */ i_owner;
+    uint256 public constant MINIMUM_USD = 50 * 10 ** 18;
+    
+    constructor() {
+        i_owner = msg.sender;
     }
 
-    function getPrice() public view returns(uint256) {
-        // addy 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419);
-        (,int256 answer,,,) = priceFeed.latestRoundData();
-        // price of ETH in USD
-        return uint256(answer * 1e10); // cuz only 8 decimals, need 18
+    function fund() public payable {
+        require(msg.value.getConversionRate() >= MINIMUM_USD, "You need to spend more ETH!");
+        // require(PriceConverter.getConversionRate(msg.value) >= MINIMUM_USD, "You need to spend more ETH!");
+        addressToAmountFunded[msg.sender] += msg.value;
+        funders.push(msg.sender);
+    }
+    
+    function getVersion() public view returns (uint256){
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(0x8A753747A1Fa494EC906cE90E9f37563A8AF630e);
+        return priceFeed.version();
+    }
+    
+    modifier onlyOwner {
+        // require(msg.sender == owner);
+        if (msg.sender != i_owner) revert NotOwner();
+        _;
+    }
+    
+    function withdraw() payable onlyOwner public {
+        for (uint256 funderIndex=0; funderIndex < funders.length; funderIndex++){
+            address funder = funders[funderIndex];
+            addressToAmountFunded[funder] = 0;
+        }
+        funders = new address[](0);
+        // // transfer
+        // payable(msg.sender).transfer(address(this).balance);
+        // // send
+        // bool sendSuccess = payable(msg.sender).send(address(this).balance);
+        // require(sendSuccess, "Send failed");
+        // call
+        (bool callSuccess, ) = payable(msg.sender).call{value: address(this).balance}("");
+        require(callSuccess, "Call failed");
+    }
+    // Explainer from: https://solidity-by-example.org/fallback/
+    // Ether is sent to contract
+    //      is msg.data empty?
+    //          /   \ 
+    //         yes  no
+    //         /     \
+    //    receive()?  fallback() 
+    //     /   \ 
+    //   yes   no
+    //  /        \
+    //receive()  fallback()
+
+    fallback() external payable {
+        fund();
     }
 
-    function getConversionRate(uint256 ethAmount) public view returns (uint256) {
-        uint256 ethPrice = getPrice();
-        // MULTIPLE FIRST then divide
-        uint256 ethAmountInUsd = (ethPrice * ethAmount) / 1e18;
-        return ethAmountInUsd;
+    receive() external payable {
+        fund();
     }
-
-   // function withdraw() {}
 
 }
